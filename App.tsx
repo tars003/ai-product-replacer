@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { ImageFile } from './types';
+import { ImageFile, LogEntry } from './types';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { replaceProductInImage } from './services/geminiService';
-import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon, InformationCircleIcon } from './components/IconComponents';
+import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon, InformationCircleIcon, DocumentTextIcon } from './components/IconComponents';
+import { LogPanel } from './components/LogPanel';
 
 const App: React.FC = () => {
     const [productImages, setProductImages] = useState<ImageFile[]>([]);
@@ -16,6 +17,8 @@ const App: React.FC = () => {
     const [qualityCheck, setQualityCheck] = useState<string | null>(null);
     const [showRejectionForm, setShowRejectionForm] = useState(false);
     const [rejectionFeedback, setRejectionFeedback] = useState("");
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [isLogPanelOpen, setIsLogPanelOpen] = useState(false);
 
 
     const handleProductFilesSelect = useCallback((files: ImageFile[]) => {
@@ -49,6 +52,7 @@ const App: React.FC = () => {
         setQualityCheck(null);
         setShowRejectionForm(false);
         setRejectionFeedback("");
+        setLogs([]);
 
         try {
             const result = await replaceProductInImage(productImages, marketingImage, feedback, setLoadingMessage);
@@ -60,6 +64,9 @@ const App: React.FC = () => {
             }
             if (result.qualityCheck) {
                 setQualityCheck(result.qualityCheck);
+            }
+            if (result.logs) {
+                setLogs(result.logs);
             }
             if(!result.image && !result.text) {
                  setError('The AI model did not return an image or text. Please try again.');
@@ -84,6 +91,8 @@ const App: React.FC = () => {
         setShowRejectionForm(false);
         setRejectionFeedback("");
         setError(null);
+        setLogs([]);
+        setIsLogPanelOpen(false);
     };
 
     const handleRetryWithFeedback = () => {
@@ -218,7 +227,7 @@ const App: React.FC = () => {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="mt-4 flex justify-center gap-4">
+                                        <div className="mt-4 flex justify-center items-center gap-4">
                                             <button onClick={handleApprove} className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-transform transform hover:scale-105">
                                                 <HandThumbUpIcon className="w-6 h-6"/>
                                                 Approve
@@ -227,6 +236,11 @@ const App: React.FC = () => {
                                                 <HandThumbDownIcon className="w-6 h-6"/>
                                                 Reject
                                             </button>
+                                            {logs.length > 0 && (
+                                                <button onClick={() => setIsLogPanelOpen(true)} title="View Process Log" className="p-3 bg-gray-700 hover:bg-gray-600 text-cyan-400 font-bold rounded-lg transition-transform transform hover:scale-105">
+                                                   <DocumentTextIcon className="w-6 h-6" />
+                                                </button>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -242,6 +256,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </main>
+            <LogPanel logs={logs} isOpen={isLogPanelOpen} onClose={() => setIsLogPanelOpen(false)} />
         </div>
     );
 };
