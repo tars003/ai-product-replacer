@@ -3,15 +3,17 @@ import { ImageFile } from './types';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { replaceProductInImage } from './services/geminiService';
-import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon } from './components/IconComponents';
+import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon, InformationCircleIcon } from './components/IconComponents';
 
 const App: React.FC = () => {
     const [productImages, setProductImages] = useState<ImageFile[]>([]);
     const [marketingImage, setMarketingImage] = useState<ImageFile | null>(null);
     const [resultImage, setResultImage] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [loadingMessage, setLoadingMessage] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
     const [resultText, setResultText] = useState<string | null>(null);
+    const [qualityCheck, setQualityCheck] = useState<string | null>(null);
     const [showRejectionForm, setShowRejectionForm] = useState(false);
     const [rejectionFeedback, setRejectionFeedback] = useState("");
 
@@ -40,19 +42,24 @@ const App: React.FC = () => {
             return;
         }
         setIsLoading(true);
+        setLoadingMessage('Preparing to generate...');
         setError(null);
         setResultImage(null);
         setResultText(null);
+        setQualityCheck(null);
         setShowRejectionForm(false);
         setRejectionFeedback("");
 
         try {
-            const result = await replaceProductInImage(productImages, marketingImage, feedback);
+            const result = await replaceProductInImage(productImages, marketingImage, feedback, setLoadingMessage);
             if (result.image) {
                 setResultImage(`data:image/png;base64,${result.image}`);
             }
             if(result.text) {
                 setResultText(result.text);
+            }
+            if (result.qualityCheck) {
+                setQualityCheck(result.qualityCheck);
             }
             if(!result.image && !result.text) {
                  setError('The AI model did not return an image or text. Please try again.');
@@ -63,6 +70,7 @@ const App: React.FC = () => {
             console.error(err);
         } finally {
             setIsLoading(false);
+            setLoadingMessage('');
         }
     };
     
@@ -72,6 +80,7 @@ const App: React.FC = () => {
         setResultText(null);
         setMarketingImage(null);
         setProductImages([]);
+        setQualityCheck(null);
         setShowRejectionForm(false);
         setRejectionFeedback("");
         setError(null);
@@ -143,7 +152,7 @@ const App: React.FC = () => {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    Generating...
+                                    {loadingMessage}
                                 </>
                             ) : (
                                 <>
@@ -178,6 +187,16 @@ const App: React.FC = () => {
                                 <div className="w-full">
                                     <img src={resultImage} alt="Generated result" className="w-full h-auto object-contain rounded-lg border-2 border-cyan-500"/>
                                     {resultText && <p className="mt-4 text-gray-300 italic p-3 bg-gray-900/50 rounded-md">{resultText}</p>}
+                                    
+                                    {qualityCheck && (
+                                        <div className="mt-4 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+                                            <h3 className="flex items-center gap-2 font-semibold text-cyan-400 mb-2">
+                                                <InformationCircleIcon className="w-6 h-6" />
+                                                AI Quality Check
+                                            </h3>
+                                            <p className="text-sm text-gray-300">{qualityCheck}</p>
+                                        </div>
+                                    )}
                                     
                                     {showRejectionForm ? (
                                         <div className="mt-4 p-4 bg-gray-700/50 rounded-lg w-full">

@@ -35,3 +35,9 @@ export const HandThumbDownIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 13.5H5.25a2.25 2.25 0 0 1-2.25-2.25V4.5a2.25 2.25 0 0 1 2.25-2.25h.383m13.283 12.01a5.25 5.25 0 0 1-7.423 7.423L11.25 18H8.25a2.25 2.25 0 0 1-2.25-2.25V8.25a2.25 2.25 0 0 1 2.25-2.25h6.75a2.25 2.25 0 0 1 2.25 2.25v3.75a5.25 5.25 0 0 1-2.523 4.477l.879 1.023Z" />
     </svg>
 );
+
+export const InformationCircleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+    </svg>
+);
