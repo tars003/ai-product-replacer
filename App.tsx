@@ -1,10 +1,9 @@
-
 import React, { useState, useCallback } from 'react';
 import { ImageFile } from './types';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { replaceProductInImage } from './services/geminiService';
-import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon } from './components/IconComponents';
+import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon } from './components/IconComponents';
 
 const App: React.FC = () => {
     const [productImages, setProductImages] = useState<ImageFile[]>([]);
@@ -13,6 +12,8 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [resultText, setResultText] = useState<string | null>(null);
+    const [showRejectionForm, setShowRejectionForm] = useState(false);
+    const [rejectionFeedback, setRejectionFeedback] = useState("");
 
 
     const handleProductFilesSelect = useCallback((files: ImageFile[]) => {
@@ -33,7 +34,7 @@ const App: React.FC = () => {
         setMarketingImage(null);
     };
 
-    const handleGenerate = async () => {
+    const handleGenerate = async (feedback?: string) => {
         if (!marketingImage || productImages.length === 0) {
             setError("Please upload at least one product image and a marketing image.");
             return;
@@ -42,9 +43,11 @@ const App: React.FC = () => {
         setError(null);
         setResultImage(null);
         setResultText(null);
+        setShowRejectionForm(false);
+        setRejectionFeedback("");
 
         try {
-            const result = await replaceProductInImage(productImages, marketingImage);
+            const result = await replaceProductInImage(productImages, marketingImage, feedback);
             if (result.image) {
                 setResultImage(`data:image/png;base64,${result.image}`);
             }
@@ -60,6 +63,23 @@ const App: React.FC = () => {
             console.error(err);
         } finally {
             setIsLoading(false);
+        }
+    };
+    
+    const handleApprove = () => {
+        // Reset for the next job
+        setResultImage(null);
+        setResultText(null);
+        setMarketingImage(null);
+        setProductImages([]);
+        setShowRejectionForm(false);
+        setRejectionFeedback("");
+        setError(null);
+    };
+
+    const handleRetryWithFeedback = () => {
+        if (rejectionFeedback.trim()) {
+            handleGenerate(rejectionFeedback);
         }
     };
     
@@ -109,7 +129,7 @@ const App: React.FC = () => {
 
                         {/* Action Button */}
                          <button
-                            onClick={handleGenerate}
+                            onClick={() => handleGenerate()}
                             disabled={isGenerateDisabled}
                             className={`w-full flex items-center justify-center gap-3 text-lg font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 ${
                                 isGenerateDisabled
@@ -137,7 +157,7 @@ const App: React.FC = () => {
                     {/* Right Column: Output */}
                     <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-lg flex flex-col items-center justify-center min-h-[400px]">
                         <h2 className="text-2xl font-bold text-cyan-400 mb-4 self-start">Result</h2>
-                        <div className="w-full h-full flex-grow flex items-center justify-center">
+                        <div className="w-full h-full flex-grow flex flex-col items-center justify-center">
                             {isLoading && (
                                 <div className="w-full max-w-md mx-auto">
                                   <div className="animate-pulse flex flex-col items-center space-y-4">
@@ -158,6 +178,38 @@ const App: React.FC = () => {
                                 <div className="w-full">
                                     <img src={resultImage} alt="Generated result" className="w-full h-auto object-contain rounded-lg border-2 border-cyan-500"/>
                                     {resultText && <p className="mt-4 text-gray-300 italic p-3 bg-gray-900/50 rounded-md">{resultText}</p>}
+                                    
+                                    {showRejectionForm ? (
+                                        <div className="mt-4 p-4 bg-gray-700/50 rounded-lg w-full">
+                                            <label htmlFor="feedback" className="block text-sm font-medium text-gray-300 mb-2">Why are you rejecting this image? (Optional but helpful)</label>
+                                            <textarea
+                                                id="feedback"
+                                                rows={3}
+                                                value={rejectionFeedback}
+                                                onChange={(e) => setRejectionFeedback(e.target.value)}
+                                                className="w-full bg-gray-800 border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                                                placeholder="e.g., The product is too small, the lighting is wrong..."
+                                            />
+                                            <div className="flex justify-end gap-3 mt-3">
+                                                <button onClick={() => setShowRejectionForm(false)} className="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-600 rounded-md hover:bg-gray-500">Cancel</button>
+                                                <button onClick={handleRetryWithFeedback} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 flex items-center gap-2">
+                                                    <SparklesIcon className="w-4 h-4" />
+                                                    Retry with Feedback
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="mt-4 flex justify-center gap-4">
+                                            <button onClick={handleApprove} className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-transform transform hover:scale-105">
+                                                <HandThumbUpIcon className="w-6 h-6"/>
+                                                Approve
+                                            </button>
+                                            <button onClick={() => setShowRejectionForm(true)} className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-transform transform hover:scale-105">
+                                                <HandThumbDownIcon className="w-6 h-6"/>
+                                                Reject
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             {!isLoading && !error && !resultImage && (

@@ -19,7 +19,8 @@ const fileToGenerativePart = (image: ImageFile): Part => {
 
 export const replaceProductInImage = async (
   productImages: ImageFile[],
-  marketingImage: ImageFile
+  marketingImage: ImageFile,
+  feedback?: string
 ): Promise<{ image: string | null; text: string | null }> => {
   // Ensure the API key is available
   if (!process.env.API_KEY) {
@@ -32,20 +33,35 @@ export const replaceProductInImage = async (
   const productParts = productImages.map(fileToGenerativePart);
   const marketingPart = fileToGenerativePart(marketingImage);
 
-  const textPrompt = `
-    You are an expert in photo editing. Your task is to replace a product in a marketing image with a new product.
+  const baseTextPrompt = `
+    You are an expert photorealistic image editor AI. Your primary function is to replace products in images.
     
-    Attached are ${productImages.length} images of the new product. Use these as a reference to understand the new product from multiple angles.
+    Attached are ${productImages.length} images of the new product. Use these as a reference.
     
-    The final image attached is the marketing image which contains the product to be replaced.
+    The final attached image is the marketing image where you will replace the existing product.
     
-    Instructions:
-    1.  Identify the main product in the marketing image that is meant to be replaced.
-    2.  Replace that product with the new product from the reference images.
-    3.  The replacement must be seamless and photorealistic. You must match the lighting, shadows, perspective, and scale of the original marketing image.
-    4.  ABSOLUTELY DO NOT change anything else in the marketing image. The background, any text, other objects, or people must remain completely untouched. Your only job is to replace the product.
-    5.  Return only the modified image. You can optionally return a short text description of the changes made.
+    Your task:
+    1.  Identify the main product in the marketing image.
+    2.  Seamlessly replace it with the new product from the reference images.
+    3.  Match the lighting, shadows, perspective, and scale of the original image for a photorealistic result.
+    4.  The background and all other elements of the marketing image must remain completely unchanged.
+    
+    Output requirements:
+    - YOU MUST output the modified image as the primary result.
+    - An image output is mandatory. Do not respond with only text.
+    - If you cannot fulfill the request for any reason, explain why in the text part, but prioritize generating an image if at all possible.
+    - You can also provide a brief text description of the edit alongside the mandatory image.
   `;
+
+  const feedbackText = feedback
+    ? `\n\n---
+PREVIOUS ATTEMPT FEEDBACK: The user was not satisfied with the last generated image. Please address the following feedback to improve the result: "${feedback}"
+Analyze this feedback carefully and generate a new image that corrects the specified issues.
+---`
+    : '';
+
+  const textPrompt = `${baseTextPrompt}${feedbackText}`;
+
 
   const promptParts: Part[] = [
     ...productParts,
@@ -79,9 +95,10 @@ export const replaceProductInImage = async (
     
     if (!resultImage) {
         console.warn("Model did not return an image.", response);
-        if(!resultText){
-             throw new Error("The AI model did not return an image or text. Please try again with clearer images.");
-        }
+        const errorMessage = resultText 
+            ? `The AI model failed to generate an image and responded with: "${resultText}"`
+            : "The AI model did not return an image. This can be an intermittent issue. Please try again.";
+        throw new Error(errorMessage);
     }
 
     return { image: resultImage, text: resultText };
