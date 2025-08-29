@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LogEntry } from '../types';
 import { XMarkIcon } from './IconComponents';
 
@@ -16,6 +16,29 @@ const LogDetail: React.FC<{ title: string; children: React.ReactNode }> = ({ tit
 );
 
 export const LogPanel: React.FC<LogPanelProps> = ({ logs, isOpen, onClose }) => {
+    const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
+
+    useEffect(() => {
+        // Initialize all steps to be open when logs change
+        const initialStates = logs.reduce((acc, log, index) => {
+            acc[index] = true;
+            return acc;
+        }, {} as Record<number, boolean>);
+        setOpenSteps(initialStates);
+    }, [logs]);
+
+    const toggleAll = (isOpen: boolean) => {
+        const newStates: Record<number, boolean> = {};
+        logs.forEach((_, index) => {
+            newStates[index] = isOpen;
+        });
+        setOpenSteps(newStates);
+    };
+
+    const toggleStep = (index: number) => {
+        setOpenSteps(prev => ({ ...prev, [index]: !prev[index] }));
+    };
+
     return (
         <div
             className={`fixed inset-0 z-50 overflow-hidden transition-opacity duration-300 ${
@@ -33,18 +56,39 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, isOpen, onClose }) => 
             >
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                        <h2 className="text-xl font-bold text-cyan-400">Process Log</h2>
+                    <div className="flex items-start justify-between p-4 border-b border-gray-700">
+                        <div>
+                             <h2 className="text-xl font-bold text-cyan-400">Process Log</h2>
+                             <div className="flex gap-4 mt-1">
+                                <button onClick={() => toggleAll(true)} className="text-xs font-medium text-gray-400 hover:text-white transition-colors">Expand All</button>
+                                <button onClick={() => toggleAll(false)} className="text-xs font-medium text-gray-400 hover:text-white transition-colors">Collapse All</button>
+                            </div>
+                        </div>
                         <button onClick={onClose} className="p-1 rounded-full text-gray-400 hover:bg-gray-700 hover:text-white">
                             <XMarkIcon className="w-6 h-6" />
                         </button>
                     </div>
 
                     {/* Content */}
-                    <div className="flex-grow p-6 overflow-y-auto space-y-6">
-                        {logs.map((log) => (
-                            <details key={log.step} className="bg-gray-900/50 border border-gray-700 rounded-lg" open>
-                                <summary className="p-4 cursor-pointer text-lg font-semibold text-white flex justify-between items-center">
+                    <div className="flex-grow p-6 overflow-y-auto space-y-4">
+                        {logs.map((log, index) => (
+                           <React.Fragment key={index}>
+                             {log.title === "Feedback Analysis" && (
+                                <div className="py-4">
+                                    <div className="w-full border-t border-dashed border-gray-600"></div>
+                                    <div className="text-center">
+                                        <span className="text-sm font-semibold text-gray-400 bg-gray-800 px-3 -mt-3 inline-block">New Attempt Based on Feedback</span>
+                                    </div>
+                                </div>
+                             )}
+                            <details className="bg-gray-900/50 border border-gray-700 rounded-lg" open={openSteps[index] === true}>
+                                <summary 
+                                    className="p-4 cursor-pointer text-lg font-semibold text-white flex justify-between items-center"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        toggleStep(index);
+                                    }}
+                                >
                                     <span>Step {log.step}: {log.title}</span>
                                     <span className="text-xs px-2 py-1 bg-cyan-900/50 text-cyan-300 rounded-full">{log.model}</span>
                                 </summary>
@@ -59,8 +103,8 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, isOpen, onClose }) => 
                                             {log.input.images && log.input.images.length > 0 && (
                                                 <LogDetail title="Images">
                                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                                        {log.input.images.map((img, index) => (
-                                                            <div key={index}>
+                                                        {log.input.images.map((img, imgIndex) => (
+                                                            <div key={imgIndex}>
                                                                 <img src={img.base64} alt={img.label} className="w-full h-auto object-cover rounded-md border-2 border-gray-600"/>
                                                                 <p className="text-xs text-center text-gray-400 mt-1">{img.label}</p>
                                                             </div>
@@ -92,6 +136,7 @@ export const LogPanel: React.FC<LogPanelProps> = ({ logs, isOpen, onClose }) => 
                                     </div>
                                 </div>
                             </details>
+                            </React.Fragment>
                         ))}
                     </div>
                 </div>

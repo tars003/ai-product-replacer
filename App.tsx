@@ -2,8 +2,8 @@ import React, { useState, useCallback } from 'react';
 import { ImageFile, LogEntry } from './types';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
-import { replaceProductInImage } from './services/geminiService';
-import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon, InformationCircleIcon, DocumentTextIcon } from './components/IconComponents';
+import { analyzeReferenceImages, replaceProductInImage } from './services/geminiService';
+import { UploadIcon, XCircleIcon, SparklesIcon, ExclamationTriangleIcon, HandThumbUpIcon, HandThumbDownIcon, InformationCircleIcon, DocumentTextIcon, ExclamationCircleIcon } from './components/IconComponents';
 import { LogPanel } from './components/LogPanel';
 
 const App: React.FC = () => {
@@ -19,7 +19,8 @@ const App: React.FC = () => {
     const [rejectionFeedback, setRejectionFeedback] = useState("");
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [isLogPanelOpen, setIsLogPanelOpen] = useState(false);
-
+    const [showImageWarning, setShowImageWarning] = useState<boolean>(false);
+    const [imageWarning, setImageWarning] = useState<string>('');
 
     const handleProductFilesSelect = useCallback((files: ImageFile[]) => {
         setProductImages(prev => [...prev, ...files].slice(0, 5));
@@ -38,21 +39,14 @@ const App: React.FC = () => {
     const removeMarketingImage = () => {
         setMarketingImage(null);
     };
-
-    const handleGenerate = async (feedback?: string) => {
-        if (!marketingImage || productImages.length === 0) {
-            setError("Please upload at least one product image and a marketing image.");
-            return;
-        }
+    
+    const startGenerationProcess = async (feedback?: string) => {
+        if (!marketingImage) return;
+        
         setIsLoading(true);
-        setLoadingMessage('Preparing to generate...');
         setError(null);
-        setResultImage(null);
-        setResultText(null);
-        setQualityCheck(null);
-        setShowRejectionForm(false);
-        setRejectionFeedback("");
-        setLogs([]);
+        setShowImageWarning(false);
+        setImageWarning('');
 
         try {
             const result = await replaceProductInImage(productImages, marketingImage, feedback, setLoadingMessage);
@@ -66,7 +60,7 @@ const App: React.FC = () => {
                 setQualityCheck(result.qualityCheck);
             }
             if (result.logs) {
-                setLogs(result.logs);
+                setLogs(prev => [...prev, ...result.logs]);
             }
             if(!result.image && !result.text) {
                  setError('The AI model did not return an image or text. Please try again.');
@@ -80,7 +74,56 @@ const App: React.FC = () => {
             setLoadingMessage('');
         }
     };
+
+
+    const handleGenerate = async () => {
+        if (!marketingImage || productImages.length === 0) {
+            setError("Please upload at least one product image and a marketing image.");
+            return;
+        }
+        
+        // Reset everything for a new run
+        setIsLoading(true);
+        setLoadingMessage('Step 1/4: Checking reference image quality...');
+        setError(null);
+        setResultImage(null);
+        setResultText(null);
+        setQualityCheck(null);
+        setShowRejectionForm(false);
+        setRejectionFeedback("");
+        setLogs([]);
+        setShowImageWarning(false);
+        setImageWarning('');
+
+        try {
+            const analysis = await analyzeReferenceImages(productImages);
+            setLogs([analysis.log]); // Set the first log entry
+
+            if (analysis.areImagesSuitable) {
+                // If images are good, proceed directly to the main 3-step process.
+                await startGenerationProcess();
+            } else {
+                // If images are not suitable, show a warning and wait for user input.
+                setImageWarning(analysis.reasoning);
+                setShowImageWarning(true);
+                setIsLoading(false); // Stop loading animation
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "An unknown error occurred during image quality analysis.");
+            setIsLoading(false);
+        }
+    };
     
+    const handleContinueAnyway = () => {
+        setShowImageWarning(false);
+        startGenerationProcess();
+    };
+
+    const handleCancelFromWarning = () => {
+        setShowImageWarning(false);
+        setImageWarning('');
+    };
+
     const handleApprove = () => {
         // Reset for the next job
         setResultImage(null);
@@ -93,11 +136,20 @@ const App: React.FC = () => {
         setError(null);
         setLogs([]);
         setIsLogPanelOpen(false);
+        setShowImageWarning(false);
+        setImageWarning('');
     };
 
     const handleRetryWithFeedback = () => {
         if (rejectionFeedback.trim()) {
-            handleGenerate(rejectionFeedback);
+            // Clear previous results before retrying
+            setResultImage(null);
+            setResultText(null);
+            setQualityCheck(null);
+            setShowRejectionForm(false);
+            // We pass the feedback to the generation process
+            startGenerationProcess(rejectionFeedback);
+            setRejectionFeedback("");
         }
     };
     
@@ -147,7 +199,7 @@ const App: React.FC = () => {
 
                         {/* Action Button */}
                          <button
-                            onClick={() => handleGenerate()}
+                            onClick={handleGenerate}
                             disabled={isGenerateDisabled}
                             className={`w-full flex items-center justify-center gap-3 text-lg font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105 ${
                                 isGenerateDisabled
@@ -192,7 +244,26 @@ const App: React.FC = () => {
                                     <p className="text-sm">{error}</p>
                                 </div>
                             )}
-                            {!isLoading && !error && resultImage && (
+                            {showImageWarning && !isLoading && (
+                                <div className="text-center text-yellow-300 bg-yellow-900/30 border border-yellow-500 p-6 rounded-lg max-w-md">
+                                    <ExclamationCircleIcon className="w-12 h-12 mx-auto mb-3 text-yellow-400"/>
+                                    <p className="font-bold text-lg mb-2">Image Quality Warning</p>
+                                    <p className="text-sm mb-6">{imageWarning}</p>
+                                    <div className="flex justify-center gap-4">
+                                        <button 
+                                            onClick={handleCancelFromWarning}
+                                            className="px-6 py-2 text-sm font-medium text-gray-200 bg-gray-600 rounded-md hover:bg-gray-500 transition-colors">
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            onClick={handleContinueAnyway}
+                                            className="px-6 py-2 text-sm font-medium text-white bg-yellow-600 rounded-md hover:bg-yellow-700 transition-colors flex items-center gap-2">
+                                            Continue Anyway
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {!isLoading && !error && !showImageWarning && resultImage && (
                                 <div className="w-full">
                                     <img src={resultImage} alt="Generated result" className="w-full h-auto object-contain rounded-lg border-2 border-cyan-500"/>
                                     {resultText && <p className="mt-4 text-gray-300 italic p-3 bg-gray-900/50 rounded-md">{resultText}</p>}
@@ -245,7 +316,7 @@ const App: React.FC = () => {
                                     )}
                                 </div>
                             )}
-                            {!isLoading && !error && !resultImage && (
+                            {!isLoading && !error && !resultImage && !showImageWarning && (
                                 <div className="text-center text-gray-500">
                                     <SparklesIcon className="w-16 h-16 mx-auto mb-4"/>
                                     <p className="text-lg">Your generated image will appear here.</p>

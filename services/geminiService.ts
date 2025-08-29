@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, Part } from "@google/genai";
+import { GoogleGenAI, Modality, Part, Type } from "@google/genai";
 import { ImageFile, LogEntry } from '../types';
 
 // This function converts a base64 string to a GenerativePart object
@@ -16,6 +16,82 @@ const fileToGenerativePart = (image: ImageFile): Part => {
     },
   };
 };
+
+export const analyzeReferenceImages = async (
+  productImages: ImageFile[],
+): Promise<{ areImagesSuitable: boolean; reasoning: string; log: LogEntry; }> => {
+  if (!process.env.API_KEY) {
+    throw new Error("API_KEY environment variable not set.");
+  }
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const productParts = productImages.map(fileToGenerativePart);
+  
+  const prompt = `
+    You are a professional photo quality analyst for an AI-powered e-commerce tool.
+    Your task is to analyze the following product reference images and determine if they are suitable for an AI to use for a product replacement task.
+
+    Ideal images have these qualities:
+    - The product is clear, in focus, and well-lit.
+    - The background is simple, clean, or not distracting (e.g., a white or plain background is perfect).
+    - The image primarily contains the product itself, without other confusing objects or subjects.
+
+    Poor quality images have these problems:
+    - The product is blurry, poorly lit, or seen from a bad angle.
+    - The background is very busy, cluttered, or contains other prominent objects that could be mistaken for part of the product.
+    - The image contains multiple distinct products or people, which could confuse the AI.
+
+    Analyze the provided images and return a JSON object indicating if they are suitable and provide your reasoning.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: { parts: [...productParts, { text: prompt }] },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            areImagesSuitable: {
+              type: Type.BOOLEAN,
+              description: 'Whether the images are suitable for the AI task.'
+            },
+            reasoning: {
+              type: Type.STRING,
+              description: 'A concise, one-sentence explanation for your decision. If not suitable, explain what the user should fix.'
+            }
+          },
+          required: ['areImagesSuitable', 'reasoning']
+        }
+      }
+    });
+
+    const jsonText = response.text;
+    const jsonResponse = JSON.parse(jsonText);
+
+    const log: LogEntry = {
+        step: 1,
+        title: "Reference Image Quality Check",
+        model: "gemini-2.5-flash",
+        input: {
+            prompt: prompt,
+            images: productImages.map((img, i) => ({ label: `Product Image ${i + 1}`, base64: img.base64 }))
+        },
+        output: { text: jsonText }
+    };
+    
+    return {
+      areImagesSuitable: jsonResponse.areImagesSuitable,
+      reasoning: jsonResponse.reasoning,
+      log: log,
+    };
+
+  } catch (error) {
+    console.error("Error during reference image analysis:", error);
+    throw new Error("The AI failed to analyze the reference images.");
+  }
+};
+
 
 const getAnalysisInstruction = async (
   ai: GoogleGenAI,
@@ -81,39 +157,74 @@ export const replaceProductInImage = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const productParts = productImages.map(fileToGenerativePart);
   const marketingPart = fileToGenerativePart(marketingImage);
+  let analysisInstruction = '';
+  let currentStep = 1;
 
   try {
-    // Step 1: Analyze images for logical consistency
-    onProgress?.('Step 1/3: Analyzing images...');
-    const analysisPrompt = `
-    You are a logical reasoning assistant for an advanced AI image editor. Your task is to analyze a set of reference product images and a target marketing image to create a single, precise instruction for the editor.
+    // Step 1 (of this run): Analyze feedback or analyze for consistency
+    if (feedback) {
+        onProgress?.('Step 1/3: Analyzing user feedback...');
+        const feedbackAnalysisPrompt = `
+        You are an AI art director. A user wants to replace a product in an image using new product reference photos.
+        Your previous attempt failed, and the user has provided the following feedback.
+        
+        USER FEEDBACK: "${feedback}"
 
-    1.  **Analyze the Target Image:** Carefully examine the target marketing image. Identify the primary product that needs to be replaced. Pay close attention to the quantity of the product (e.g., is it a single shoe, a pair of shoes, one bottle, a six-pack of bottles?).
-    2.  **Analyze the Reference Images:** Examine the new product in the reference images.
-    3.  **Create a Critical Instruction:** Based on your analysis, write a single, clear, and concise instruction sentence for the image editor. This instruction MUST prevent logical errors. For example, if the target image contains a single shoe and the reference images show a pair of shoes, your instruction MUST explicitly say to replace the single shoe with ONLY ONE shoe from the reference.
+        Your task is to analyze this feedback and create a new, single, precise "CRITICAL INSTRUCTION" for the image editing AI.
+        This instruction must directly address the user's feedback while still achieving the original goal of seamlessly replacing the product in the marketing image with the product from the reference images.
 
-    **Example Output:** "Replace the single sneaker in the target image with a single sneaker from the reference images, ensuring only one shoe is depicted in the final result."
+        Examine the provided reference and marketing images to understand the full context.
+        Your output must be ONLY the single, revised instruction sentence. Do not add any extra text, explanations, or greetings.
+        `;
+        const feedbackResponse = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: { parts: [...productParts, marketingPart, { text: feedbackAnalysisPrompt }] },
+        });
+        analysisInstruction = feedbackResponse.text.trim();
+        logs.push({
+            step: currentStep++,
+            title: "Feedback Analysis",
+            model: "gemini-2.5-flash",
+            input: {
+                prompt: feedbackAnalysisPrompt,
+                images: [
+                  ...productImages.map((img, i) => ({ label: `Product Image ${i + 1}`, base64: img.base64 })),
+                  { label: 'Marketing Image', base64: marketingImage.base64 }
+                ]
+            },
+            output: { text: analysisInstruction }
+        });
+    } else {
+        onProgress?.('Step 2/4: Analyzing for logical consistency...');
+        const analysisPrompt = `
+        You are a logical reasoning assistant for an advanced AI image editor. Your task is to analyze a set of reference product images and a target marketing image to create a single, precise instruction for the editor.
 
-    Your output must be ONLY this single instruction sentence. Do not add any extra text, explanations, or greetings.
-    `;
-    const analysisInstruction = await getAnalysisInstruction(ai, analysisPrompt, productParts, marketingPart);
-    console.log("AI Analysis Instruction:", analysisInstruction);
-    logs.push({
-      step: 1,
-      title: "Pre-analysis for Logical Consistency",
-      model: "gemini-2.5-flash",
-      input: {
-        prompt: analysisPrompt,
-        images: [
-          ...productImages.map((img, i) => ({ label: `Product Image ${i + 1}`, base64: img.base64 })),
-          { label: 'Marketing Image', base64: marketingImage.base64 }
-        ]
-      },
-      output: { text: analysisInstruction }
-    });
+        1.  **Analyze the Target Image:** Carefully examine the target marketing image. Identify the primary product that needs to be replaced. Pay close attention to the quantity of the product (e.g., is it a single shoe, a pair of shoes, one bottle, a six-pack of bottles?).
+        2.  **Analyze the Reference Images:** Examine the new product in the reference images.
+        3.  **Create a Critical Instruction:** Based on your analysis, write a single, clear, and concise instruction sentence for the image editor. This instruction MUST prevent logical errors. For example, if the target image contains a single shoe and the reference images show a pair of shoes, your instruction MUST explicitly say to replace the single shoe with ONLY ONE shoe from the reference.
+
+        **Example Output:** "Replace the single sneaker in the target image with a single sneaker from the reference images, ensuring only one shoe is depicted in the final result."
+
+        Your output must be ONLY this single instruction sentence. Do not add any extra text, explanations, or greetings.
+        `;
+        analysisInstruction = await getAnalysisInstruction(ai, analysisPrompt, productParts, marketingPart);
+        logs.push({
+          step: 2, // This follows Step 1 (Quality Check) from App.tsx
+          title: "Pre-analysis for Logical Consistency",
+          model: "gemini-2.5-flash",
+          input: {
+            prompt: analysisPrompt,
+            images: [
+              ...productImages.map((img, i) => ({ label: `Product Image ${i + 1}`, base64: img.base64 })),
+              { label: 'Marketing Image', base64: marketingImage.base64 }
+            ]
+          },
+          output: { text: analysisInstruction }
+        });
+    }
     
-    // Step 2: Generate the image with the analysis instruction
-    onProgress?.('Step 2/3: Generating new image...');
+    // Step 2 (of this run): Generate the image with the analysis instruction
+    onProgress?.(feedback ? 'Step 2/3: Generating new image...' : 'Step 3/4: Generating new image...');
     
     const baseTextPrompt = `
       You are an expert photorealistic image editor AI. Your function is to replace products in images.
@@ -137,14 +248,11 @@ export const replaceProductInImage = async (
       - You can provide a brief text description of the edit alongside the image.
     `;
 
-    const feedbackText = feedback
-      ? `\n\n---
-PREVIOUS ATTEMPT FEEDBACK: The user was not satisfied. Address the following feedback: "${feedback}"
-Analyze this feedback carefully and generate a new image that corrects the specified issues, while still following the CRITICAL INSTRUCTION.
----`
-      : '';
-
-    const generationPrompt = `${baseTextPrompt}${feedbackText}`;
+     const generationPrompt = feedback 
+        ? `${baseTextPrompt}\n\n---
+        NOTE: This is a revised attempt based on user feedback. Pay extra close attention to the new CRITICAL INSTRUCTION to correct the previous failure.
+        ---`
+        : baseTextPrompt;
 
     const generationPromptParts: Part[] = [
       ...productParts,
@@ -176,7 +284,7 @@ Analyze this feedback carefully and generate a new image that corrects the speci
     }
 
      logs.push({
-      step: 2,
+      step: feedback ? 2 : 3,
       title: "Product Replacement Image Generation",
       model: "gemini-2.5-flash-image-preview",
       input: {
@@ -197,8 +305,8 @@ Analyze this feedback carefully and generate a new image that corrects the speci
         throw new Error(errorMessage);
     }
     
-    // Step 3: Perform Quality Check
-    onProgress?.('Step 3/3: Performing quality check...');
+    // Step 3 (of this run): Perform Quality Check
+    onProgress?.(feedback ? 'Step 3/3: Performing quality check...' : 'Step 4/4: Performing quality check...');
     let qualityCheck: string | null = null;
     const qualityCheckPrompt = `
     You are an expert Quality Assurance specialist for an AI image editor.
@@ -231,7 +339,7 @@ Analyze this feedback carefully and generate a new image that corrects the speci
             generatedPart
         );
          logs.push({
-            step: 3,
+            step: feedback ? 3 : 4,
             title: "AI Quality Check",
             model: "gemini-2.5-flash",
             input: {
