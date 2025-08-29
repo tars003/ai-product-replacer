@@ -1,0 +1,5 @@
+{
+  "name": " AI Product Replacer",
+  "description": "An application that uses AI to replace a product in a marketing image with your product images, preserving the original background and context.",
+  "requestFramePermissions": []
+}
